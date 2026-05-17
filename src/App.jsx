@@ -1102,6 +1102,50 @@ function DashboardPage({ data, setActivePage, user, reconcileOperationalItems })
         <KpiCard icon={WalletCards} label="Ticket médio" value={formatCurrency(kpis.averageTicket)} accent="green" />
       </div>
 
+      <section className="panel wide reconciliation-panel">
+        <SectionHeading
+          eyebrow="Reconciliacao"
+          title="Pendencias vencidas"
+          action={
+            canReconcile && (
+              <button className="outline-button" type="button" onClick={reconcileOperationalItems}>
+                <RotateCw size={16} />
+                Reconciliar agora
+              </button>
+            )
+          }
+        />
+        <div className="reconciliation-summary">
+          <MetricMini label="Finalizados" value={reconciliationSummary.appointmentsFinished || 0} />
+          <MetricMini label="Faltas" value={reconciliationSummary.appointmentsNoShow || 0} />
+          <MetricMini label="Lembretes" value={reconciliationSummary.remindersExpired || 0} />
+          <MetricMini label="Fila expirada" value={reconciliationSummary.waitlistExpired || 0} />
+        </div>
+        <div className="reconciliation-footnote">
+          <History size={16} />
+          <span>Ultima checagem: {formatDateTime(reconciliation.lastCheckedAt || reconciliation.lastRunAt)}</span>
+        </div>
+        <div className="reconciliation-events">
+          {reconciliationEvents.slice(0, 4).map((event) => (
+            <div className="compact-item" key={event.id}>
+              <strong>{event.label || event.entityId}</strong>
+              <span>{event.message}</span>
+              <StatusPill status={event.nextStatus} label={statusLabel[event.nextStatus] || notificationStatusLabel[event.nextStatus] || waitlistStatusLabel[event.nextStatus] || event.nextStatus} />
+            </div>
+          ))}
+          {!reconciliationEvents.length && <EmptyState text="Nenhuma pendencia vencida registrada." />}
+        </div>
+      </section>
+
+      <section className="panel reconciliation-rules">
+        <SectionHeading eyebrow="Regras" title="Criterios ativos" />
+        <div className="alert-list">
+          {(reconciliation.rules || []).map((rule) => (
+            <AlertLine key={rule.key} icon={BadgeCheck} label={rule.label} value={rule.description} />
+          ))}
+        </div>
+      </section>
+
       <section className="panel wide">
         <SectionHeading eyebrow="Receita" title="Faturamento e volume mensal" action={<ChartLegend />} />
         <div className="chart-box">
@@ -1414,12 +1458,15 @@ function SchedulePage({ data, user, updateAppointmentStatus, cancelAppointment }
             const client = data.clients.find((clientItem) => clientItem.id === item.clientId);
             const service = data.services.find((serviceItem) => serviceItem.id === item.serviceId);
             return (
-              <div className="compact-item" key={item.id}>
+              <div className={`compact-item ${item.status === 'expired' ? 'expired-item' : ''}`} key={item.id}>
                 <strong>{client?.name}</strong>
+                <StatusPill status={item.status} label={waitlistStatusLabel[item.status] || item.status} />
+                {item.reconciledAt && <small>Reconciliado em {formatDateTime(item.reconciledAt)}</small>}
                 <span>{service?.name} · {item.preferredDate} · {item.period}</span>
               </div>
             );
           })}
+          {!data.waitlist.length && <EmptyState text="Nenhum item na lista de espera." />}
         </div>
       </section>
     </div>
@@ -2351,9 +2398,12 @@ function SupportPage({ data }) {
           {data.notifications.map((notification) => (
             <div className="table-row" key={notification.id}>
               <Bell size={18} />
-              <span>{notification.title}</span>
+              <span>
+                {notification.title}
+                <small>{notification.scheduledFor ? formatDateTime(notification.scheduledFor) : notification.reconciliationReason}</small>
+              </span>
               <strong>{notification.channel}</strong>
-              <StatusPill status={notification.status} label={notification.status} />
+              <StatusPill status={notification.status} label={notificationStatusLabel[notification.status] || notification.status} />
             </div>
           ))}
         </div>
@@ -2384,6 +2434,9 @@ function AppointmentCard({ appointment, canManage, onStatus, onCancel }) {
       <div className="appointment-main">
         <StatusPill status={appointment.status} label={statusLabel[appointment.status]} />
         <h3>{appointment.client?.name}</h3>
+        {appointment.reconciledAt && (
+          <small className="reconciled-note">Reconciliado: {appointment.reconciliationReason || formatDateTime(appointment.reconciledAt)}</small>
+        )}
         <p>{appointment.service?.name} · {appointment.barber?.name}</p>
         <small>{appointment.date} · {formatCurrency(appointment.service?.price)}</small>
       </div>

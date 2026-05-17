@@ -11,20 +11,9 @@
 [client] > vite --host 0.0.0.0
 [client] 
 [client] 
-[client]   [32m[1mVITE[22m v6.4.2[39m  [2mready in [0m[1m798[22m[2m[0m ms[22m
+[client]   [32m[1mVITE[22m v6.4.2[39m  [2mready in [0m[1m667[22m[2m[0m ms[22m
 [client] 
 [client]   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
 [client]   [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.0.110:[1m5173[22m/[39m
 [server] BarberPro API rodando em http://localhost:3333
 [server] Persistencia ativa: MySQL barberpro em 127.0.0.1:3306 (healthy, writable=true)
-[client] [2m11:53:17[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:08:15[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:08:45[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:08:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:09:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:09:33[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:09:45[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css[22m
-[client] [2m13:33:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:33:48[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:34:09[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
-[client] [2m13:34:57[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx[22m

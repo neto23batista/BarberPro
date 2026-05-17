@@ -743,6 +743,7 @@ body[data-theme='light'] .sidebar {
 .appointment-row span,
 .appointment-row small,
 .compact-item span,
+.compact-item small,
 .service-card p,
 .barber-card p,
 .promo-card p,
@@ -750,6 +751,25 @@ body[data-theme='light'] .sidebar {
   display: block;
   color: var(--muted);
   line-height: 1.4;
+}
+
+.compact-item.expired-item {
+  border-color: color-mix(in srgb, var(--red) 48%, var(--border));
+  background: linear-gradient(135deg, var(--red-soft), var(--surface-2));
+}
+
+.reconciled-note {
+  display: block;
+  margin: 5px 0 0;
+  color: var(--gold);
+  line-height: 1.35;
+}
+
+.table-row span small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .time-dot {
@@ -799,9 +819,15 @@ body[data-theme='light'] .sidebar {
 
 .status-pill.cancelled,
 .status-pill.no_show,
-.status-pill.refunded {
+.status-pill.refunded,
+.status-pill.expired {
   color: #ef7182;
   background: var(--red-soft);
+}
+
+.status-pill.waiting {
+  color: var(--gold);
+  background: var(--gold-soft);
 }
 
 .alert-line,
@@ -1439,6 +1465,56 @@ body[data-theme='light'] .public-header {
   color: var(--muted);
 }
 
+.reconciliation-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.reconciliation-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.reconciliation-summary .metric-mini {
+  min-height: 88px;
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+.reconciliation-footnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.reconciliation-events {
+  display: grid;
+  gap: 10px;
+}
+
+.reconciliation-events .compact-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.reconciliation-events .compact-item span {
+  grid-column: 1 / -1;
+}
+
+.reconciliation-rules .alert-line {
+  grid-template-columns: auto minmax(0, 0.42fr) minmax(0, 1.2fr);
+  align-items: start;
+}
+
+.reconciliation-rules .alert-line strong {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .public-grid {
   display: grid;
   grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
@@ -1804,6 +1880,7 @@ body[data-theme='light'] .public-header {
 
   .appointment-card,
   .appointment-row,
+  .reconciliation-rules .alert-line,
   .barber-card,
   .service-card,
   .client-card,

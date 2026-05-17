@@ -733,14 +733,18 @@ function reconcileOperationalData(data, options = {}) {
     summary.waitlistExpired;
 
   if (summary.totalUpdated > 0 || options.recordRun) {
+    const previousState = data.operationalReconciliation || {};
     const previousEvents = Array.isArray(data.operationalReconciliation?.events)
       ? data.operationalReconciliation.events
       : [];
     data.operationalReconciliation = {
       ruleVersion: RECONCILIATION_RULE_VERSION,
-      lastRunAt: nowIso,
-      lastRunBy: options.user?.id || 'system',
-      summary,
+      lastRunAt: summary.totalUpdated > 0 ? nowIso : previousState.lastRunAt || nowIso,
+      lastRunBy: summary.totalUpdated > 0 ? options.user?.id || 'system' : previousState.lastRunBy || options.user?.id || 'system',
+      lastCheckedAt: nowIso,
+      lastCheckedBy: options.user?.id || 'system',
+      summary: summary.totalUpdated > 0 ? summary : previousState.summary || summary,
+      lastCheckSummary: summary,
       rules: operationalReconciliationRules(),
       events: [...events, ...previousEvents].slice(0, 40)
     };
@@ -772,7 +776,10 @@ function operationalReconciliationView(state, user = null) {
     ruleVersion: state?.ruleVersion || RECONCILIATION_RULE_VERSION,
     lastRunAt: state?.lastRunAt || null,
     lastRunBy: state?.lastRunBy || null,
+    lastCheckedAt: state?.lastCheckedAt || state?.lastRunAt || null,
+    lastCheckedBy: state?.lastCheckedBy || state?.lastRunBy || null,
     summary,
+    lastCheckSummary: state?.lastCheckSummary || null,
     rules: state?.rules || operationalReconciliationRules(),
     events: canSeeEvents ? (state?.events || []) : []
   };
