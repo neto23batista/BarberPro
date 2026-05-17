@@ -1051,12 +1051,16 @@ function PublicReviewPage({ storageStatus, onRetryStorage, darkMode, onToggleThe
   );
 }
 
-function DashboardPage({ data, setActivePage }) {
+function DashboardPage({ data, setActivePage, user, reconcileOperationalItems }) {
   const kpis = data.reports.kpis;
   const nextAppointments = data.appointments
     .filter((appointment) => ['scheduled', 'confirmed', 'in_service'].includes(appointment.status))
     .slice(0, 5);
   const nextAppointment = nextAppointments[0];
+  const reconciliation = data.operationalReconciliation || {};
+  const reconciliationSummary = reconciliation.summary || {};
+  const reconciliationEvents = reconciliation.events || [];
+  const canReconcile = adminRoles.includes(user.role);
   const operationHealth = Math.max(
     0,
     Math.round(100 - Number(kpis.cancellationRate || 0) - Number(kpis.noShowRate || 0) - Number(kpis.lowStock || 0) * 4)
