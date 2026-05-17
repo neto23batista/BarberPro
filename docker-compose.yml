@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: barberpro-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: barberpro
+      POSTGRES_USER: barberpro
+      POSTGRES_PASSWORD: barberpro_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - barberpro_pg:/var/lib/postgresql/data
+      - ./database/schema.postgres.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+volumes:
+  barberpro_pg:
