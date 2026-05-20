@@ -1,24 +1,25 @@
 # BarberPro
 
-Sistema full stack para barbearias com agenda inteligente, área do cliente, painel do barbeiro, administração, pagamentos, estoque, relatórios, promoções, fidelidade, notificações e permissões por perfil.
+Sistema full stack para barbearias com agenda inteligente, area do cliente, painel do barbeiro, administracao, estoque, custos, relatorios, promocoes, fidelidade, lembretes por WhatsApp e permissoes por perfil.
 
 ## Stack
 
 - Frontend: React + Vite + CSS responsivo + Recharts + Lucide Icons.
 - Backend: Node.js + Express.
-- Persistência local: arquivo JSON em `data/barberpro.json`, criado automaticamente no primeiro uso.
-- Banco para produção: PostgreSQL, com schema em `database/schema.postgres.sql`.
-- Exportação: CSV compatível com Excel e PDF.
+- Persistencia local: arquivo JSON em `data/barberpro.json`, criado automaticamente no primeiro uso.
+- Banco principal local/producao: MySQL/MariaDB, compativel com XAMPP.
+- Schema PostgreSQL de referencia em `database/schema.postgres.sql`.
+- Exportacao: CSV compativel com Excel e PDF.
 
 ## Como rodar
 
-1. Instale as dependências:
+1. Instale as dependencias:
 
 ```bash
 npm install
 ```
 
-No PowerShell deste ambiente, se `npm` estiver bloqueado por política de scripts, use:
+No PowerShell deste ambiente, se `npm` estiver bloqueado por politica de scripts, use:
 
 ```bash
 npm.cmd install
@@ -48,9 +49,9 @@ API:
 http://localhost:3333/api/health
 ```
 
-## Acessos de demonstração local
+## Acessos de demonstracao local
 
-Use estes acessos apenas em desenvolvimento. Antes de publicar o sistema, remova ou troque todos os usuários de demonstração e configure um `JWT_SECRET` forte.
+Use estes acessos apenas em desenvolvimento. Antes de publicar o sistema, remova ou troque todos os usuarios de demonstracao e configure um `JWT_SECRET` forte.
 
 Todos usam a senha `123456`.
 
@@ -67,48 +68,53 @@ Os dados demonstrativos locais recebem datas relativas ao dia em que o servidor 
 ## Funcionalidades
 
 - Cadastro e login de cliente com senha criptografada.
-- Agenda diária, semanal e mensal com filtros por barbeiro, serviço, data e status.
-- Bloqueio de horários ocupados e prevenção de conflitos.
+- Agenda diaria, semanal e mensal com filtros por barbeiro, servico, data e status.
+- Bloqueio de horarios ocupados e prevencao de conflitos no backend.
 - Encaixe autorizado para perfis administrativos.
-- Reagendamento, cancelamento e mudança de status do atendimento.
-- Painel do barbeiro com agenda do dia, comissões, metas, avaliações e bloqueios.
-- Dashboard administrativo com clientes, barbeiros, serviços, produtos, promoções e logs.
-- Serviços com preço, duração, ícone e barbeiros habilitados.
-- Pagamentos por dinheiro, cartão, Pix e online.
-- Controle financeiro com status, comissão e relatórios.
-- Estoque com produto, categoria, quantidade, compra, venda, mínimo e movimentações.
+- Reagendamento, cancelamento e mudanca de status do atendimento.
+- Painel do barbeiro com agenda do dia, metas, avaliacoes e bloqueios.
+- Dashboard administrativo com clientes, barbeiros, servicos, produtos, promocoes e logs.
+- Servicos com preco, duracao, icone e barbeiros habilitados.
+- Receita estimada por atendimentos finalizados, sem modulo de cobranca.
+- Controle de custos e despesas operacionais.
+- Estoque com produto, categoria, quantidade, compra, venda, minimo e movimentacoes.
 - Alertas de estoque baixo.
-- Relatórios com faturamento, ticket médio, cancelamento, não comparecimento, serviços vendidos, barbeiros, clientes e horários movimentados.
-- Exportação em PDF e CSV/Excel.
-- Promoções, combos, cupons e programa de fidelidade.
-- Notificações simuladas para WhatsApp, e-mail, SMS e sistema.
-- QR Code para avaliação.
+- Relatorios com faturamento estimado, ticket medio, cancelamento, nao comparecimento, servicos vendidos, barbeiros, clientes e horarios movimentados.
+- Exportacao em PDF e CSV/Excel.
+- Promocoes, combos, cupons e programa de fidelidade.
+- Lembretes e mensagens operacionais por WhatsApp.
+- QR Code para avaliacao.
 - Backup do banco local em JSON.
 - Modo escuro/claro.
-- Suporte a múltiplas unidades no modelo de dados.
+- Suporte a multiplas unidades no modelo de dados.
 
 ## Estrutura
 
 ```text
 .
-├── database/
-│   └── schema.postgres.sql
-├── server/
-│   ├── index.js
-│   └── store.js
-├── src/
-│   ├── App.jsx
-│   ├── main.jsx
-│   └── styles.css
-├── docker-compose.yml
-├── index.html
-├── package.json
-└── README.md
+|-- database/
+|   |-- schema.mysql.sql
+|   |-- schema.postgres.sql
+|   `-- xampp-barberpro.sql
+|-- server/
+|   |-- adapters/
+|   |-- services/
+|   |-- validators/
+|   |-- index.js
+|   `-- store.js
+|-- src/
+|   |-- App.jsx
+|   |-- main.jsx
+|   `-- styles.css
+|-- docker-compose.yml
+|-- index.html
+|-- package.json
+`-- README.md
 ```
 
 ## Banco de dados
 
-O projeto agora pode rodar com MySQL/MariaDB do XAMPP. O `.env` local já está configurado para:
+O projeto pode rodar com MySQL/MariaDB do XAMPP. O `.env` local ja esta configurado para:
 
 ```text
 DB_DRIVER=mysql
@@ -121,7 +127,7 @@ DB_CONNECT_TIMEOUT_MS=2000
 DB_FALLBACK_TO_JSON=readonly
 ```
 
-Com o MySQL do XAMPP ligado, o servidor cria automaticamente o banco `barberpro` e a tabela `app_state` no primeiro start. O arquivo `database/schema.mysql.sql` também cria a estrutura relacional alvo para a próxima etapa de migração, com tabelas reais para agenda, clientes, pagamentos, estoque e auditoria. Para criar manualmente pelo phpMyAdmin, importe:
+Com o MySQL do XAMPP ligado, o servidor cria automaticamente o banco `barberpro` e a tabela `app_state` no primeiro start. O arquivo `database/schema.mysql.sql` cria a estrutura relacional para agenda, clientes, custos, estoque, notificacoes e auditoria. Para criar manualmente pelo phpMyAdmin, importe:
 
 ```text
 database/xampp-barberpro.sql
@@ -135,46 +141,45 @@ C:\xampp\mysql\bin\mysql.exe -u root < database\xampp-barberpro.sql
 
 Se o MySQL estiver desligado e `DB_FALLBACK_TO_JSON=readonly`, o sistema carrega `data/barberpro.json` apenas como snapshot de leitura. Escritas ficam bloqueadas com resposta `503` para impedir divergencia entre o MySQL e o JSON local. Depois de religar o MySQL do XAMPP, use `/api/health` ou o aviso da interface para confirmar que a persistencia voltou a ficar gravavel.
 
-O projeto também mantém um schema PostgreSQL de referência em `database/schema.postgres.sql`.
-
 Tabelas principais:
 
 - `units`: filiais/unidades da barbearia.
-- `users`: login e permissões dos perfis administrador, dono, barbeiro, atendente e cliente.
-- `clients`: dados comerciais do cliente, histórico, aniversário, pontos e observações.
-- `barbers`: dados dos barbeiros, comissão, metas, avaliação e especialidades.
-- `barber_units`: relação entre barbeiros e unidades.
-- `services`: serviços, descrição, preço, duração, ícone e status.
-- `service_barbers`: barbeiros habilitados para cada serviço.
-- `barber_time_blocks`: horários bloqueados por barbeiros ou administradores.
-- `appointments`: agenda com cliente, barbeiro, serviço, unidade, data, horário, status e pagamento.
-- `payments`: registros financeiros dos atendimentos.
-- `commissions`: comissão calculada por atendimento finalizado.
-- `reviews`: avaliações dos clientes.
+- `users`: login e permissoes dos perfis administrador, dono, barbeiro, atendente e cliente.
+- `clients`: dados comerciais do cliente, historico, aniversario, pontos e observacoes.
+- `barbers`: dados dos barbeiros, metas, avaliacao, comissao operacional e especialidades.
+- `barber_units`: relacao entre barbeiros e unidades.
+- `services`: servicos, descricao, preco, duracao, icone e status.
+- `service_barbers`: barbeiros habilitados para cada servico.
+- `barber_time_blocks`: horarios bloqueados por barbeiros ou administradores.
+- `appointments`: agenda com cliente, barbeiro, servico, unidade, data, horario e status.
+- `commissions`: comissao operacional calculada por atendimento finalizado.
+- `reviews`: avaliacoes dos clientes.
 - `products`: cadastro e saldo de produtos.
-- `stock_movements`: histórico de compras, vendas, uso interno, perdas e ajustes.
-- `expenses`: despesas para apuração de lucro.
-- `promotions`: promoções e combos.
-- `coupons`: cupons individuais, aniversário e fidelidade.
+- `stock_movements`: historico de compras, vendas, uso interno, perdas e ajustes.
+- `expenses`: despesas para apuracao de resultado.
+- `promotions`: promocoes e combos.
+- `coupons`: cupons individuais, aniversario e fidelidade.
 - `loyalty_rewards`: recompensas do programa de fidelidade.
-- `referrals`: indicações feitas por clientes.
+- `referrals`: indicacoes feitas por clientes.
 - `waitlist`: lista de espera.
-- `notifications`: fila de mensagens automáticas.
-- `barbershop_settings`: horários, feriados, segurança e integrações em JSONB.
-- `audit_logs`: logs de ações importantes.
+- `notifications`: fila de mensagens automaticas por WhatsApp e sistema.
+- `barbershop_settings`: horarios, feriados, seguranca e integracoes em JSON.
+- `audit_logs`: logs de acoes importantes.
 
 Relacionamentos relevantes:
 
 - `appointments` referencia `clients`, `barbers`, `services` e `units`.
-- `payments`, `commissions` e `reviews` referenciam `appointments`.
-- `service_barbers` resolve o relacionamento N:N entre serviços e barbeiros.
+- `commissions` e `reviews` referenciam `appointments`.
+- `service_barbers` resolve o relacionamento N:N entre servicos e barbeiros.
 - `barber_units` resolve o relacionamento N:N entre barbeiros e unidades.
 - `stock_movements` referencia `products` e opcionalmente `users`.
 - `coupons` referencia `clients` e opcionalmente `promotions`.
 
+Observacao de compatibilidade: schemas antigos ainda podem conter tabela/colunas de cobranca. O produto atual nao cria cobrancas, nao exibe cobrancas e nao calcula relatorios a partir de cobrancas.
+
 ## Docker PostgreSQL
 
-Para subir um PostgreSQL local com o schema:
+Para subir um PostgreSQL local com o schema de referencia:
 
 ```bash
 docker compose up -d
@@ -190,27 +195,26 @@ user: barberpro
 password: barberpro_dev
 ```
 
-## Segurança implementada
+## Seguranca implementada
 
 - Hash de senha com `bcryptjs`.
-- JWT com expiração de 8 horas.
-- Middleware de autenticação e autorização por perfil.
-- Validação de dados obrigatórios nas principais rotas.
-- Prevenção de conflito de agenda no backend.
-- Logs de auditoria para login, cadastro, agendamento, cancelamento, estoque, configurações e backup.
-- Schema PostgreSQL preparado para consultas parametrizadas e restrições de integridade.
+- JWT com expiracao de 8 horas.
+- Middleware de autenticacao e autorizacao por perfil.
+- Validacao de dados obrigatorios nas principais rotas.
+- Prevencao de conflito de agenda no backend.
+- Logs de auditoria para login, cadastro, agendamento, cancelamento, estoque, configuracoes e backup.
+- Consultas MySQL parametrizadas nos fluxos transacionais.
 
-Para produção, altere `JWT_SECRET`, configure HTTPS, mantenha sessão via cookie HttpOnly, registre consentimento LGPD, configure backup externo e integre gateways reais de pagamento/mensageria.
+Para producao, altere `JWT_SECRET`, configure HTTPS, mantenha sessao via cookie HttpOnly, registre consentimento LGPD, configure backup externo e integre WhatsApp Business Cloud API ou provedor equivalente para envio real das mensagens.
 
 ## Melhorias futuras
 
-- Integração real com Mercado Pago, Stripe ou Pagar.me.
-- WhatsApp Business Cloud API com webhooks.
-- Envio real por e-mail/SMS.
-- Prisma ou Knex para usar o PostgreSQL diretamente pela aplicação.
-- Testes automatizados de API e componentes.
-- Controle de caixa por turno.
-- Aplicativo PWA com notificações push.
-- Importação/exportação avançada em XLSX.
-- Tela de comandas e venda balcão.
-- Assinaturas ou planos mensais para clientes recorrentes.
+- WhatsApp Business Cloud API com webhooks e status de entrega.
+- Templates aprovados para lembrete, confirmacao, remarcacao e recuperacao de acesso.
+- Prisma ou Knex para consolidar as migracoes relacionais.
+- Testes automatizados de componentes.
+- Controle de caixa por turno sem cobranca integrada.
+- Aplicativo PWA com notificacoes push.
+- Importacao/exportacao avancada em XLSX.
+- Tela de comandas e venda balcao sem cobranca online.
+- Assinaturas ou planos mensais para clientes recorrentes, caso a regra de negocio volte a exigir cobranca integrada.

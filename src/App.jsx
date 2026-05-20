@@ -19,7 +19,6 @@ import {
 import {
   AlertTriangle,
   BadgeCheck,
-  Banknote,
   BarChart3,
   Bell,
   Building2,
@@ -32,7 +31,6 @@ import {
   Clock3,
   Copy,
   Crown,
-  CreditCard,
   Download,
   Droplets,
   Eye,
@@ -43,7 +41,6 @@ import {
   LayoutDashboard,
   LockKeyhole,
   LogOut,
-  Mail,
   MapPin,
   Megaphone,
   Menu,
@@ -70,9 +67,9 @@ import {
   TimerReset,
   TrendingUp,
   UserCog,
+  UserPlus,
   UserRound,
   Users,
-  WalletCards,
   Waves,
   X
 } from 'lucide-react';
@@ -113,13 +110,6 @@ const statusLabel = {
   no_show: 'Não compareceu'
 };
 
-const paymentLabel = {
-  pending: 'Pendente',
-  paid: 'Pago',
-  cancelled: 'Cancelado',
-  refunded: 'Reembolsado'
-};
-
 const notificationStatusLabel = {
   queued: 'Na fila',
   scheduled: 'Agendado',
@@ -133,13 +123,6 @@ const waitlistStatusLabel = {
   expired: 'Expirado',
   booked: 'Agendado',
   cancelled: 'Cancelado'
-};
-
-const paymentIcon = {
-  pix: Smartphone,
-  card: CreditCard,
-  cash: Banknote,
-  online: CircleDollarSign
 };
 
 const statusOrder = ['scheduled', 'confirmed', 'in_service', 'finished', 'cancelled', 'no_show'];
@@ -188,6 +171,16 @@ function isPublicReviewRoute() {
 }
 
 function currentReviewToken() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('token') || '';
+}
+
+function isPublicPasswordResetRoute() {
+  if (typeof window === 'undefined') return false;
+  return window.location.pathname.replace(/\/+$/, '') === '/recuperar-senha';
+}
+
+function currentPasswordResetToken() {
   if (typeof window === 'undefined') return '';
   return new URLSearchParams(window.location.search).get('token') || '';
 }
@@ -258,6 +251,7 @@ async function downloadWithAuth(path, token, filename) {
 
 function App() {
   const publicReviewRoute = isPublicReviewRoute();
+  const publicPasswordResetRoute = isPublicPasswordResetRoute();
   const [token, setToken] = useState('');
   const [user, setUser] = useState(null);
   const [publicData, setPublicData] = useState({ services: [], barbers: [], promotions: [], units: [] });
@@ -285,12 +279,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (publicReviewRoute) {
+    if (publicReviewRoute || publicPasswordResetRoute) {
       setSessionChecked(true);
       return;
     }
     restoreSession();
-  }, [publicReviewRoute]);
+  }, [publicReviewRoute, publicPasswordResetRoute]);
 
   useEffect(() => {
     checkStorageHealth({ silent: true });
@@ -350,6 +344,13 @@ function App() {
       setUser(payload.user);
       setToken(COOKIE_SESSION);
     } catch (error) {
+      if (error.code === 'PASSWORD_CHANGE_REQUIRED') {
+        const payload = await apiRequest('/api/auth/me', { token: currentToken });
+        setUser(payload.user);
+        setToken(COOKIE_SESSION);
+        setDashboard(null);
+        return;
+      }
       if (!options.silent) setToast({ type: 'error', message: error.message });
       logout({ remote: false });
       throw error;
@@ -367,6 +368,11 @@ function App() {
       });
       setToken(COOKIE_SESSION);
       setUser(payload.user);
+      if (payload.user?.mustChangePassword) {
+        setDashboard(null);
+        setToast({ type: 'error', message: 'Troque sua senha provisoria antes de continuar.' });
+        return;
+      }
       setActivePage(payload.user.role === 'client' ? 'agendamento' : 'dashboard');
       await refreshDashboard(COOKIE_SESSION, { silent: true });
       setToast({ type: 'success', message: 'Login realizado.' });
@@ -396,6 +402,23 @@ function App() {
     }
   }
 
+  async function handleRecover(email) {
+    setLoading(true);
+    try {
+      const payload = await apiRequest('/api/auth/recover', {
+        method: 'POST',
+        body: { email }
+      });
+      setToast({ type: 'success', message: 'Instrucoes de recuperacao enviadas.' });
+      return payload;
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function logout(options = {}) {
     if (options.remote !== false) {
       await apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -410,7 +433,7 @@ function App() {
       await apiRequest(`/api/appointments/${appointmentId}/status`, {
         method: 'POST',
         token,
-        body: { status, paymentStatus: status === 'finished' ? 'paid' : undefined }
+        body: { status }
       });
       setToast({ type: 'success', message: `Status alterado para ${statusLabel[status]}.` });
       refreshDashboard();
@@ -452,6 +475,25 @@ function App() {
     }
   }
 
+  async function handleRequiredPasswordChange(currentPassword, password) {
+    setLoading(true);
+    try {
+      const payload = await apiRequest('/api/auth/change-password', {
+        method: 'POST',
+        token,
+        body: { currentPassword, password }
+      });
+      setUser(payload.user);
+      setToast({ type: 'success', message: 'Senha alterada.' });
+      await refreshDashboard(COOKIE_SESSION, { silent: true });
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   if (!sessionChecked) {
     return <LoadingState />;
   }
@@ -469,6 +511,20 @@ function App() {
     );
   }
 
+  if (publicPasswordResetRoute) {
+    return (
+      <>
+        <PasswordResetPage
+          storageStatus={storageStatus}
+          onRetryStorage={() => checkStorageHealth({ silent: false })}
+          darkMode={darkMode}
+          onToggleTheme={() => setDarkMode((value) => !value)}
+        />
+        <Toast toast={toast} onClose={() => setToast(null)} />
+      </>
+    );
+  }
+
   if (!user || !token) {
     return (
       <>
@@ -477,8 +533,25 @@ function App() {
           loading={loading}
           onLogin={handleLogin}
           onRegister={handleRegister}
+          onRecover={handleRecover}
           storageStatus={storageStatus}
           onRetryStorage={() => checkStorageHealth({ silent: false })}
+          darkMode={darkMode}
+          onToggleTheme={() => setDarkMode((value) => !value)}
+        />
+        <Toast toast={toast} onClose={() => setToast(null)} />
+      </>
+    );
+  }
+
+  if (user.mustChangePassword) {
+    return (
+      <>
+        <PasswordChangeRequiredPage
+          user={user}
+          loading={loading}
+          onSubmit={handleRequiredPasswordChange}
+          onLogout={logout}
           darkMode={darkMode}
           onToggleTheme={() => setDarkMode((value) => !value)}
         />
@@ -587,7 +660,7 @@ function buildNav(role) {
     { id: 'admin', label: 'Admin', icon: ShieldCheck, roles: ['admin', 'owner', 'attendant'] },
     { id: 'servicos', label: 'Serviços', icon: ClipboardList, roles: ['admin', 'owner', 'attendant', 'client'] },
     { id: 'barbeiros', label: 'Barbeiros', icon: Users, roles: ['admin', 'owner', 'attendant', 'client'] },
-    { id: 'financeiro', label: 'Financeiro', icon: WalletCards, roles: ['admin', 'owner', 'attendant', 'barber'] },
+    { id: 'financeiro', label: 'Custos', icon: TrendingUp, roles: ['admin', 'owner', 'attendant'] },
     { id: 'estoque', label: 'Estoque', icon: Package, roles: ['admin', 'owner', 'attendant'] },
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3, roles: ['admin', 'owner', 'attendant', 'barber'] },
     { id: 'avaliacoes', label: 'Avaliações', icon: Star, roles: ['admin', 'owner', 'attendant', 'barber', 'client'] },
@@ -608,7 +681,7 @@ function pageTitle(page) {
     admin: 'Administração',
     servicos: 'Serviços',
     barbeiros: 'Barbeiros',
-    financeiro: 'Financeiro',
+    financeiro: 'Custos',
     estoque: 'Estoque',
     relatorios: 'Relatórios',
     avaliacoes: 'Avaliações',
@@ -625,11 +698,11 @@ function pageDescription(page) {
     agendamento: 'Escolha cliente, serviço, barbeiro e horário sem conflito.',
     agenda: 'Controle visual de atendimentos por status, data e profissional.',
     cliente: 'Histórico, fidelidade, faltas, cupons e preferências.',
-    barbeiro: 'Agenda individual, bloqueios, metas, comissões e avaliações.',
+    barbeiro: 'Agenda individual, bloqueios, metas e avaliações.',
     admin: 'Central de gestão para clientes, equipe, serviços, produtos e logs.',
     servicos: 'Catálogo comercial com preços, duração e profissionais habilitados.',
     barbeiros: 'Equipe, especialidades, avaliações e desempenho.',
-    financeiro: 'Pagamentos, comissões, despesas e lucro estimado.',
+    financeiro: 'Despesas, custos operacionais e resultado estimado.',
     estoque: 'Produtos, alertas de mínimo e movimentações de inventário.',
     relatorios: 'Gráficos, rankings e exportações para tomada de decisão.',
     avaliacoes: 'Feedback dos clientes e QR Code de avaliação.',
@@ -747,9 +820,11 @@ function QuickSearch({ data, setActivePage }) {
   );
 }
 
-function PublicExperience({ publicData, loading, onLogin, onRegister, storageStatus, onRetryStorage, darkMode, onToggleTheme }) {
+function PublicExperience({ publicData, loading, onLogin, onRegister, onRecover, storageStatus, onRetryStorage, darkMode, onToggleTheme }) {
   const [mode, setMode] = useState('login');
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [recoverEmail, setRecoverEmail] = useState('');
+  const [recovery, setRecovery] = useState(null);
   const [registerForm, setRegisterForm] = useState({
     name: '',
     email: '',
@@ -779,7 +854,7 @@ function PublicExperience({ publicData, loading, onLogin, onRegister, storageSta
           <span className="eyebrow">Barbearia premium conectada</span>
           <h1>BarberPro</h1>
           <p>
-            Agenda inteligente, atendimento com histórico, pagamentos, estoque, comissões, relatórios e fidelidade em
+            Agenda inteligente, atendimento com histórico, estoque, lembretes por WhatsApp, relatórios e fidelidade em
             uma operação centralizada.
           </p>
           <div className="hero-actions">
@@ -795,7 +870,7 @@ function PublicExperience({ publicData, loading, onLogin, onRegister, storageSta
           <div className="proof-strip">
             <span><ShieldCheck size={16} /> Permissões por perfil</span>
             <span><Bell size={16} /> Lembretes automáticos</span>
-            <span><WalletCards size={16} /> Financeiro integrado</span>
+            <span><TrendingUp size={16} /> Custos e relatórios</span>
           </div>
         </div>
         <div className="hero-metrics">
@@ -813,6 +888,9 @@ function PublicExperience({ publicData, loading, onLogin, onRegister, storageSta
             </button>
             <button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>
               Cadastro
+            </button>
+            <button className={mode === 'recover' ? 'active' : ''} onClick={() => setMode('recover')}>
+              Recuperar
             </button>
           </div>
 
@@ -836,7 +914,7 @@ function PublicExperience({ publicData, loading, onLogin, onRegister, storageSta
                 Entrar
               </button>
             </form>
-          ) : (
+          ) : mode === 'register' ? (
             <form
               className="stack-form"
               onSubmit={(event) => {
@@ -872,6 +950,27 @@ function PublicExperience({ publicData, loading, onLogin, onRegister, storageSta
                 Criar conta
               </button>
             </form>
+          ) : (
+            <form
+              className="stack-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const payload = await onRecover(recoverEmail);
+                setRecovery(payload);
+              }}
+            >
+              <Input label="E-mail" value={recoverEmail} onChange={setRecoverEmail} />
+              <button className="primary-button full" disabled={loading || !recoverEmail}>
+                <MessageCircle size={18} />
+                Enviar recuperacao
+              </button>
+              {recovery?.devResetUrl && (
+                <a className="outline-button full" href={recovery.devResetUrl}>
+                  <LockKeyhole size={18} />
+                  Abrir link local
+                </a>
+              )}
+            </form>
           )}
         </div>
 
@@ -889,6 +988,165 @@ function PublicExperience({ publicData, loading, onLogin, onRegister, storageSta
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function PasswordResetPage({ storageStatus, onRetryStorage, darkMode, onToggleTheme }) {
+  const resetToken = useMemo(() => currentPasswordResetToken(), []);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  async function submitPasswordReset(event) {
+    event.preventDefault();
+    if (password !== confirmPassword) {
+      setMessage({ type: 'error', text: 'As senhas nao conferem.' });
+      return;
+    }
+
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      const payload = await apiRequest('/api/auth/reset', {
+        method: 'POST',
+        body: {
+          token: resetToken,
+          password
+        }
+      });
+      setPassword('');
+      setConfirmPassword('');
+      setMessage({ type: 'success', text: payload.message || 'Senha redefinida com sucesso.' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="review-public-shell">
+      <header className="public-header">
+        <div className="brand">
+          <div className="brand-mark">BP</div>
+          <div>
+            <strong>BarberPro</strong>
+            <span>Recuperacao de senha</span>
+          </div>
+        </div>
+        <button className="icon-button" onClick={onToggleTheme} aria-label="Alternar tema">
+          {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+      </header>
+
+      <PersistenceBanner status={storageStatus} onRetry={onRetryStorage} publicView />
+
+      <main className="review-public-main">
+        <section className="review-public-card">
+          <div className="review-public-heading">
+            <span className="eyebrow">Conta</span>
+            <h1>Redefinir senha</h1>
+          </div>
+          {message && <div className={`form-message ${message.type}`}>{message.text}</div>}
+          {!resetToken ? (
+            <EmptyState text="Token de recuperacao ausente." />
+          ) : (
+            <form className="stack-form" onSubmit={submitPasswordReset}>
+              <Input label="Nova senha" type="password" value={password} onChange={setPassword} />
+              <Input label="Confirmar senha" type="password" value={confirmPassword} onChange={setConfirmPassword} />
+              <button className="primary-button full" disabled={submitting || !password || !confirmPassword}>
+                <Save size={18} />
+                Salvar nova senha
+              </button>
+              <a className="outline-button full" href="/">
+                <LockKeyhole size={18} />
+                Voltar para login
+              </a>
+            </form>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function PasswordChangeRequiredPage({ user, loading, onSubmit, onLogout, darkMode, onToggleTheme }) {
+  const [form, setForm] = useState({ currentPassword: '', password: '', confirmPassword: '' });
+  const [message, setMessage] = useState(null);
+
+  async function submitPasswordChange(event) {
+    event.preventDefault();
+    if (form.password !== form.confirmPassword) {
+      setMessage({ type: 'error', text: 'As senhas nao conferem.' });
+      return;
+    }
+
+    setMessage(null);
+    try {
+      await onSubmit(form.currentPassword, form.password);
+      setForm({ currentPassword: '', password: '', confirmPassword: '' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    }
+  }
+
+  return (
+    <div className="review-public-shell">
+      <header className="public-header">
+        <div className="brand">
+          <div className="brand-mark">BP</div>
+          <div>
+            <strong>BarberPro</strong>
+            <span>Seguranca da conta</span>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <button className="icon-button" onClick={onToggleTheme} aria-label="Alternar tema">
+            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button className="ghost-button" onClick={onLogout}>
+            <LogOut size={17} />
+            Sair
+          </button>
+        </div>
+      </header>
+
+      <main className="review-public-main">
+        <section className="review-public-card">
+          <div className="review-public-heading">
+            <span className="eyebrow">{user?.name}</span>
+            <h1>Troque sua senha provisoria</h1>
+            <p>Antes de acessar o painel, defina uma senha forte e exclusiva.</p>
+          </div>
+          {message && <div className={`form-message ${message.type}`}>{message.text}</div>}
+          <form className="stack-form" onSubmit={submitPasswordChange}>
+            <Input
+              label="Senha atual"
+              type="password"
+              value={form.currentPassword}
+              onChange={(currentPassword) => setForm({ ...form, currentPassword })}
+            />
+            <Input
+              label="Nova senha"
+              type="password"
+              value={form.password}
+              onChange={(password) => setForm({ ...form, password })}
+            />
+            <Input
+              label="Confirmar nova senha"
+              type="password"
+              value={form.confirmPassword}
+              onChange={(confirmPassword) => setForm({ ...form, confirmPassword })}
+            />
+            <button className="primary-button full" disabled={loading || !form.currentPassword || !form.password || !form.confirmPassword}>
+              <Save size={18} />
+              Atualizar senha
+            </button>
+          </form>
+        </section>
+      </main>
     </div>
   );
 }
@@ -1099,7 +1357,7 @@ function DashboardPage({ data, setActivePage, user, reconcileOperationalItems })
         <KpiCard icon={CircleDollarSign} label="Faturamento hoje" value={formatCurrency(kpis.revenueToday)} accent="gold" />
         <KpiCard icon={TrendingUp} label="Faturamento mensal" value={formatCurrency(kpis.revenueMonth)} accent="blue" />
         <KpiCard icon={CalendarDays} label="Agendamentos" value={kpis.totalAppointments} accent="red" />
-        <KpiCard icon={WalletCards} label="Ticket médio" value={formatCurrency(kpis.averageTicket)} accent="green" />
+        <KpiCard icon={Target} label="Ticket médio" value={formatCurrency(kpis.averageTicket)} accent="green" />
       </div>
 
       <section className="panel wide reconciliation-panel">
@@ -1168,7 +1426,7 @@ function DashboardPage({ data, setActivePage, user, reconcileOperationalItems })
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel wide">
         <SectionHeading eyebrow="Hoje" title="Próximos atendimentos" />
         <div className="timeline-list">
           {nextAppointments.map((appointment) => (
@@ -1221,7 +1479,6 @@ function BookingPage({ data, token, user, refreshDashboard, setToast }) {
     barberId: defaultBarber,
     date: todayKey(1),
     startTime: '',
-    paymentMethod: 'pix',
     allowFitIn: false,
     notes: ''
   });
@@ -1307,17 +1564,6 @@ function BookingPage({ data, token, user, refreshDashboard, setToast }) {
             options={allowedBarbers.map((barber) => ({ label: barber.name, value: barber.id }))}
           />
           <Input label="Data" type="date" value={form.date} onChange={(date) => setForm({ ...form, date, startTime: '' })} />
-          <Select
-            label="Pagamento"
-            value={form.paymentMethod}
-            onChange={(paymentMethod) => setForm({ ...form, paymentMethod })}
-            options={[
-              { label: 'Pix', value: 'pix' },
-              { label: 'Cartão', value: 'card' },
-              { label: 'Dinheiro', value: 'cash' },
-              { label: 'Online', value: 'online' }
-            ]}
-          />
           <Textarea label="Observações" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} />
           {adminRoles.includes(user.role) && (
             <label className="toggle-row">
@@ -1473,13 +1719,44 @@ function SchedulePage({ data, user, updateAppointmentStatus, cancelAppointment }
   );
 }
 
-function ClientPage({ data, user, setActivePage }) {
+function ClientPage({ data, user, setActivePage, token, refreshDashboard, setToast }) {
   const [search, setSearch] = useState('');
   const currentClient = data.clients.find((client) => client.id === user.clientId) || data.clients[0];
+  const [profileForm, setProfileForm] = useState({
+    name: '',
+    phone: '',
+    birthDate: '',
+    preferredBarberId: ''
+  });
   const visibleClients = adminRoles.includes(user.role)
     ? data.clients.filter((client) => `${client.name} ${client.email} ${client.phone}`.toLowerCase().includes(search.toLowerCase()))
     : [currentClient].filter(Boolean);
   const history = data.appointments.filter((appointment) => appointment.clientId === currentClient?.id);
+
+  useEffect(() => {
+    if (!currentClient || user.role !== 'client') return;
+    setProfileForm({
+      name: currentClient.name || '',
+      phone: currentClient.phone || '',
+      birthDate: currentClient.birthDate || '',
+      preferredBarberId: currentClient.preferredBarberId || ''
+    });
+  }, [currentClient?.id, currentClient?.name, currentClient?.phone, currentClient?.birthDate, currentClient?.preferredBarberId, user.role]);
+
+  async function saveProfile(event) {
+    event.preventDefault();
+    try {
+      await apiRequest('/api/profile', {
+        method: 'PATCH',
+        token,
+        body: profileForm
+      });
+      setToast({ type: 'success', message: 'Perfil atualizado.' });
+      await refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
 
   return (
     <div className="two-column">
@@ -1508,6 +1785,27 @@ function ClientPage({ data, user, setActivePage }) {
           Novo agendamento
         </button>
       </section>
+
+      {user.role === 'client' && currentClient && (
+        <section className="panel">
+          <SectionHeading eyebrow="Perfil" title="Dados pessoais" />
+          <form className="stack-form" onSubmit={saveProfile}>
+            <Input label="Nome" value={profileForm.name} onChange={(name) => setProfileForm({ ...profileForm, name })} />
+            <Input label="Telefone" value={profileForm.phone} onChange={(phone) => setProfileForm({ ...profileForm, phone })} />
+            <Input label="Aniversario" type="date" value={profileForm.birthDate} onChange={(birthDate) => setProfileForm({ ...profileForm, birthDate })} />
+            <Select
+              label="Barbeiro preferido"
+              value={profileForm.preferredBarberId}
+              onChange={(preferredBarberId) => setProfileForm({ ...profileForm, preferredBarberId })}
+              options={[{ label: 'Sem preferencia', value: '' }, ...data.barbers.map((barber) => ({ label: barber.name, value: barber.id }))]}
+            />
+            <button className="primary-button full">
+              <Save size={18} />
+              Salvar perfil
+            </button>
+          </form>
+        </section>
+      )}
 
       <section className="panel wide">
         <SectionHeading eyebrow="Histórico" title="Atendimentos e observações" />
@@ -1543,9 +1841,7 @@ function BarberPage({ data, user, token, refreshDashboard, setToast }) {
   const [block, setBlock] = useState({ date: todayKey(1), startTime: '12:00', endTime: '13:00', reason: '' });
   const barberAppointments = data.appointments.filter((appointment) => appointment.barberId === barber?.id);
   const todayAppointments = barberAppointments.filter((appointment) => appointment.date === todayKey());
-  const commissions = data.commissions.filter((commission) => commission.barberId === barber?.id);
   const reviews = data.reviews.filter((review) => review.barberId === barber?.id);
-  const totalCommission = commissions.reduce((sum, commission) => sum + Number(commission.amount || 0), 0);
 
   async function createBlock(event) {
     event.preventDefault();
@@ -1576,8 +1872,8 @@ function BarberPage({ data, user, token, refreshDashboard, setToast }) {
       </section>
 
       <section className="panel">
-        <SectionHeading eyebrow="Comissão" title="Resultados" />
-        <KpiCard icon={CircleDollarSign} label="Comissão disponível" value={formatCurrency(totalCommission)} accent="gold" flat />
+        <SectionHeading eyebrow="Resultado" title="Atendimentos" />
+        <KpiCard icon={CalendarDays} label="Atendimentos no mês" value={barberAppointments.length} accent="gold" flat />
         <KpiCard icon={Target} label="Meta mensal" value={formatCurrency(barber?.goalMonthly)} accent="blue" flat />
       </section>
 
@@ -1620,8 +1916,47 @@ function BarberPage({ data, user, token, refreshDashboard, setToast }) {
   );
 }
 
-function AdminPage({ data, setActivePage }) {
-  const roles = data.user ? [] : [];
+function AdminPage({ data, setActivePage, token, refreshDashboard, setToast, user }) {
+  const [userForm, setUserForm] = useState({ role: 'attendant', name: '', email: '', phone: '', password: '' });
+  const canManageUsers = ['admin', 'owner'].includes(user.role);
+  const users = data.users || [];
+
+  async function createUser(event) {
+    event.preventDefault();
+    try {
+      await apiRequest('/api/users', { method: 'POST', token, body: userForm });
+      setToast({ type: 'success', message: 'Usuario cadastrado.' });
+      setUserForm({ role: 'attendant', name: '', email: '', phone: '', password: '' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function updateUserStatus(targetUser) {
+    try {
+      await apiRequest(`/api/users/${targetUser.id}`, {
+        method: 'PATCH',
+        token,
+        body: { status: targetUser.status === 'active' ? 'inactive' : 'active' }
+      });
+      setToast({ type: 'success', message: targetUser.status === 'active' ? 'Usuario desativado.' : 'Usuario ativado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function deleteUser(targetUser) {
+    if (!window.confirm(`Desativar ${targetUser.name}?`)) return;
+    try {
+      await apiRequest(`/api/users/${targetUser.id}`, { method: 'DELETE', token });
+      setToast({ type: 'success', message: 'Usuario desativado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
   return (
     <div className="page-grid">
       <section className="panel wide">
@@ -1647,15 +1982,59 @@ function AdminPage({ data, setActivePage }) {
       <section className="panel">
         <SectionHeading eyebrow="Permissões" title="Níveis de acesso" />
         <div className="permission-list">
-          {['Administrador geral', 'Dono', 'Barbeiro', 'Atendente', 'Cliente'].map((role) => (
-            <div className="permission-row" key={role}>
+          {users.map((item) => (
+            <div className="permission-row" key={item.id}>
               <ShieldCheck size={18} />
-              <span>{role}</span>
-              <b>Ativo</b>
+              <span>{item.name}</span>
+              <small>{item.role} - {item.email}</small>
+              <StatusPill status={item.status} label={item.status === 'active' ? 'Ativo' : 'Inativo'} />
+              {canManageUsers && item.id !== user.id && (
+                <div className="card-actions inline-actions">
+                  <button type="button" className="outline-button" onClick={() => updateUserStatus(item)}>
+                    {item.status === 'active' ? 'Desativar' : 'Ativar'}
+                  </button>
+                  <button type="button" className="outline-button danger-action" onClick={() => deleteUser(item)}>
+                    Remover
+                  </button>
+                </div>
+              )}
             </div>
           ))}
+          {!users.length && <EmptyState text="Nenhum usuario administrativo carregado." />}
         </div>
       </section>
+
+      {canManageUsers && (
+        <section className="panel">
+          <SectionHeading eyebrow="Usuarios" title="Novo acesso" />
+          <form className="stack-form" onSubmit={createUser}>
+            <Select
+              label="Perfil"
+              value={userForm.role}
+              onChange={(role) => setUserForm({ ...userForm, role })}
+              options={[
+                { label: 'Atendente', value: 'attendant' },
+                { label: 'Barbeiro', value: 'barber' },
+                { label: 'Cliente', value: 'client' },
+                ...(user.role === 'admin'
+                  ? [
+                      { label: 'Dono', value: 'owner' },
+                      { label: 'Administrador', value: 'admin' }
+                    ]
+                  : [])
+              ]}
+            />
+            <Input label="Nome" value={userForm.name} onChange={(name) => setUserForm({ ...userForm, name })} />
+            <Input label="E-mail" type="email" value={userForm.email} onChange={(email) => setUserForm({ ...userForm, email })} />
+            <Input label="Telefone" value={userForm.phone} onChange={(phone) => setUserForm({ ...userForm, phone })} />
+            <Input label="Senha inicial" type="password" value={userForm.password} onChange={(password) => setUserForm({ ...userForm, password })} />
+            <button className="primary-button full">
+              <UserPlus size={18} />
+              Criar acesso
+            </button>
+          </form>
+        </section>
+      )}
 
       <section className="panel wide">
         <SectionHeading eyebrow="Auditoria" title="Logs importantes" />
@@ -1696,6 +2075,31 @@ function ServicesPage({ data, token, refreshDashboard, setToast, user }) {
     }
   }
 
+  async function toggleService(service) {
+    try {
+      await apiRequest(`/api/services/${service.id}`, {
+        method: 'PATCH',
+        token,
+        body: { active: !service.active }
+      });
+      setToast({ type: 'success', message: service.active ? 'Servico desativado.' : 'Servico ativado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function deleteService(service) {
+    if (!window.confirm(`Remover ${service.name}? Se houver historico, ele sera apenas arquivado.`)) return;
+    try {
+      await apiRequest(`/api/services/${service.id}`, { method: 'DELETE', token });
+      setToast({ type: 'success', message: 'Servico removido ou arquivado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
   return (
     <div className="two-column">
       <section className="panel wide">
@@ -1712,6 +2116,16 @@ function ServicesPage({ data, token, refreshDashboard, setToast, user }) {
                 <span>{service.durationMinutes} min · {formatCurrency(service.price)}</span>
               </div>
               <StatusPill status={service.active ? 'active' : 'inactive'} label={service.active ? 'Ativo' : 'Inativo'} />
+              {canEdit && (
+                <div className="card-actions">
+                  <button type="button" className="outline-button" onClick={() => toggleService(service)}>
+                    {service.active ? 'Desativar' : 'Ativar'}
+                  </button>
+                  <button type="button" className="outline-button danger-action" onClick={() => deleteService(service)}>
+                    Remover
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -1768,7 +2182,62 @@ function ServicesPage({ data, token, refreshDashboard, setToast, user }) {
   );
 }
 
-function BarbersPage({ data }) {
+function BarbersPage({ data, token, refreshDashboard, setToast, user }) {
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    bio: '',
+    specialties: '',
+    commissionRate: 0.4,
+    goalMonthly: 0
+  });
+  const canEdit = adminRoles.includes(user.role);
+
+  async function createBarber(event) {
+    event.preventDefault();
+    try {
+      await apiRequest('/api/barbers', {
+        method: 'POST',
+        token,
+        body: {
+          ...form,
+          specialties: form.specialties.split(',').map((item) => item.trim()).filter(Boolean)
+        }
+      });
+      setToast({ type: 'success', message: 'Barbeiro cadastrado.' });
+      setForm({ name: '', email: '', phone: '', bio: '', specialties: '', commissionRate: 0.4, goalMonthly: 0 });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function toggleBarber(barber) {
+    try {
+      await apiRequest(`/api/barbers/${barber.id}`, {
+        method: 'PATCH',
+        token,
+        body: { status: barber.status === 'active' ? 'inactive' : 'active' }
+      });
+      setToast({ type: 'success', message: barber.status === 'active' ? 'Barbeiro desativado.' : 'Barbeiro ativado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function deleteBarber(barber) {
+    if (!window.confirm(`Remover ${barber.name}? Se houver historico, ele sera apenas arquivado.`)) return;
+    try {
+      await apiRequest(`/api/barbers/${barber.id}`, { method: 'DELETE', token });
+      setToast({ type: 'success', message: 'Barbeiro removido ou arquivado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
   return (
     <div className="page-grid">
       <section className="panel wide">
@@ -1788,10 +2257,52 @@ function BarbersPage({ data }) {
                 <Star size={17} fill="currentColor" />
                 {barber.rating}
               </div>
+              <StatusPill status={barber.status} label={barber.status === 'active' ? 'Ativo' : 'Inativo'} />
+              {canEdit && (
+                <div className="card-actions">
+                  <button type="button" className="outline-button" onClick={() => toggleBarber(barber)}>
+                    {barber.status === 'active' ? 'Desativar' : 'Ativar'}
+                  </button>
+                  <button type="button" className="outline-button danger-action" onClick={() => deleteBarber(barber)}>
+                    Remover
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>
       </section>
+
+      {canEdit && (
+        <section className="panel">
+          <SectionHeading eyebrow="Equipe" title="Novo barbeiro" />
+          <form className="stack-form" onSubmit={createBarber}>
+            <Input label="Nome" value={form.name} onChange={(name) => setForm({ ...form, name })} />
+            <Input label="E-mail" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} />
+            <Input label="Telefone" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
+            <Textarea label="Bio" value={form.bio} onChange={(bio) => setForm({ ...form, bio })} />
+            <Input label="Especialidades" value={form.specialties} onChange={(specialties) => setForm({ ...form, specialties })} />
+            <div className="input-row">
+              <Input
+                label="Comissao"
+                type="number"
+                value={form.commissionRate}
+                onChange={(commissionRate) => setForm({ ...form, commissionRate: Number(commissionRate) })}
+              />
+              <Input
+                label="Meta mensal"
+                type="number"
+                value={form.goalMonthly}
+                onChange={(goalMonthly) => setForm({ ...form, goalMonthly: Number(goalMonthly) })}
+              />
+            </div>
+            <button className="primary-button full">
+              <Plus size={18} />
+              Cadastrar barbeiro
+            </button>
+          </form>
+        </section>
+      )}
 
       <section className="panel wide">
         <SectionHeading eyebrow="Comparativo" title="Performance por profissional" />
@@ -1811,50 +2322,98 @@ function BarbersPage({ data }) {
   );
 }
 
-function FinancePage({ data }) {
-  const payments = data.payments;
-  const commissionTotal = data.commissions.reduce((sum, commission) => sum + Number(commission.amount || 0), 0);
-  const paidTotal = payments.filter((payment) => payment.status === 'paid').reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+function FinancePage({ data, token, refreshDashboard, setToast, user }) {
+  const [expenseForm, setExpenseForm] = useState({ category: '', description: '', amount: '', dueDate: todayKey() });
+  const expenses = data.expenses || [];
+  const totalExpenses = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const pendingExpenses = expenses.filter((expense) => expense.status === 'pending' || expense.status === 'overdue');
+  const canEditExpenses = ['admin', 'owner'].includes(user.role);
+
+  async function createExpense(event) {
+    event.preventDefault();
+    try {
+      await apiRequest('/api/expenses', { method: 'POST', token, body: expenseForm });
+      setToast({ type: 'success', message: 'Despesa cadastrada.' });
+      setExpenseForm({ category: '', description: '', amount: '', dueDate: todayKey() });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function markExpensePaid(expense) {
+    try {
+      await apiRequest(`/api/expenses/${expense.id}`, { method: 'PATCH', token, body: { status: 'paid' } });
+      setToast({ type: 'success', message: 'Despesa marcada como paga.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function deleteExpense(expense) {
+    if (!window.confirm(`Remover ${expense.description}?`)) return;
+    try {
+      await apiRequest(`/api/expenses/${expense.id}`, { method: 'DELETE', token });
+      setToast({ type: 'success', message: 'Despesa removida ou cancelada.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
 
   return (
     <div className="page-grid">
       <div className="kpi-grid">
-        <KpiCard icon={WalletCards} label="Pagamentos pagos" value={formatCurrency(paidTotal)} accent="gold" />
-        <KpiCard icon={TimerReset} label="Pendentes" value={payments.filter((payment) => payment.status === 'pending').length} accent="red" />
-        <KpiCard icon={Scissors} label="Comissões" value={formatCurrency(commissionTotal)} accent="blue" />
-        <KpiCard icon={TrendingUp} label="Lucro estimado" value={formatCurrency(data.reports.kpis.estimatedProfit)} accent="green" />
+        <KpiCard icon={TrendingUp} label="Resultado estimado" value={formatCurrency(data.reports.kpis.estimatedProfit)} accent="green" />
+        <KpiCard icon={TimerReset} label="Custos pendentes" value={pendingExpenses.length} accent="red" />
+        <KpiCard icon={Scissors} label="Atendimentos" value={data.reports.kpis.totalAppointments} accent="blue" />
+        <KpiCard icon={ClipboardList} label="Despesas cadastradas" value={formatCurrency(totalExpenses)} accent="gold" />
       </div>
 
       <section className="panel wide">
-        <SectionHeading eyebrow="Pagamentos" title="Controle financeiro" />
-        <div className="table-list">
-          {payments.map((payment) => {
-            const appointment = data.appointments.find((item) => item.id === payment.appointmentId);
-            const Icon = paymentIcon[payment.method] || WalletCards;
-            return (
-              <div className="table-row" key={payment.id}>
-                <Icon size={18} />
-                <span>{appointment?.client?.name || payment.clientId}</span>
-                <strong>{formatCurrency(payment.amount)}</strong>
-                <StatusPill status={payment.status} label={paymentLabel[payment.status] || payment.status} />
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="panel">
         <SectionHeading eyebrow="Despesas" title="Contas e custos" />
         <div className="timeline-list">
-          {data.expenses?.map((expense) => (
+          {expenses.map((expense) => (
             <div className="compact-item" key={expense.id}>
               <strong>{expense.description}</strong>
               <span>{expense.category} · {expense.dueDate}</span>
               <b>{formatCurrency(expense.amount)}</b>
+              <StatusPill status={expense.status} label={expense.status === 'paid' ? 'Pago' : expense.status} />
+              {canEditExpenses && (
+                <div className="card-actions">
+                  {expense.status !== 'paid' && (
+                    <button type="button" className="outline-button" onClick={() => markExpensePaid(expense)}>
+                      Pagar
+                    </button>
+                  )}
+                  <button type="button" className="outline-button danger-action" onClick={() => deleteExpense(expense)}>
+                    Remover
+                  </button>
+                </div>
+              )}
             </div>
           ))}
+          {!expenses.length && <EmptyState text="Nenhuma despesa cadastrada." />}
         </div>
       </section>
+      {canEditExpenses && (
+        <section className="panel">
+          <SectionHeading eyebrow="Custos" title="Nova despesa" />
+          <form className="stack-form" onSubmit={createExpense}>
+            <Input label="Categoria" value={expenseForm.category} onChange={(category) => setExpenseForm({ ...expenseForm, category })} />
+            <Input label="Descricao" value={expenseForm.description} onChange={(description) => setExpenseForm({ ...expenseForm, description })} />
+            <div className="input-row">
+              <Input label="Valor" type="number" value={expenseForm.amount} onChange={(amount) => setExpenseForm({ ...expenseForm, amount })} />
+              <Input label="Vencimento" type="date" value={expenseForm.dueDate} onChange={(dueDate) => setExpenseForm({ ...expenseForm, dueDate })} />
+            </div>
+            <button className="primary-button full">
+              <Plus size={18} />
+              Cadastrar despesa
+            </button>
+          </form>
+        </section>
+      )}
     </div>
   );
 }
@@ -1887,6 +2446,31 @@ function InventoryPage({ data, token, refreshDashboard, setToast, user }) {
     }
   }
 
+  async function toggleProduct(product) {
+    try {
+      await apiRequest(`/api/products/${product.id}`, {
+        method: 'PATCH',
+        token,
+        body: { active: !product.active }
+      });
+      setToast({ type: 'success', message: product.active ? 'Produto desativado.' : 'Produto ativado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function deleteProduct(product) {
+    if (!window.confirm(`Remover ${product.name}? Se houver movimentacao, ele sera apenas arquivado.`)) return;
+    try {
+      await apiRequest(`/api/products/${product.id}`, { method: 'DELETE', token });
+      setToast({ type: 'success', message: 'Produto removido ou arquivado.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
   return (
     <div className="page-grid">
       <section className="panel wide">
@@ -1902,6 +2486,16 @@ function InventoryPage({ data, token, refreshDashboard, setToast, user }) {
               <b>{product.quantity}</b>
               <small>mín. {product.minStock}</small>
               <span>{formatCurrency(product.salePrice)}</span>
+              {canEdit && (
+                <div className="card-actions">
+                  <button type="button" className="outline-button" onClick={() => toggleProduct(product)}>
+                    {product.active === false ? 'Ativar' : 'Desativar'}
+                  </button>
+                  <button type="button" className="outline-button danger-action" onClick={() => deleteProduct(product)}>
+                    Remover
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -2183,6 +2777,31 @@ function PromotionsPage({ data, token, refreshDashboard, setToast, user }) {
     }
   }
 
+  async function togglePromotion(promo) {
+    try {
+      await apiRequest(`/api/promotions/${promo.id}`, {
+        method: 'PATCH',
+        token,
+        body: { active: !promo.active }
+      });
+      setToast({ type: 'success', message: promo.active ? 'Promocao desativada.' : 'Promocao ativada.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
+  async function deletePromotion(promo) {
+    if (!window.confirm(`Remover promocao ${promo.code}? Se houver cupons, ela sera arquivada.`)) return;
+    try {
+      await apiRequest(`/api/promotions/${promo.id}`, { method: 'DELETE', token });
+      setToast({ type: 'success', message: 'Promocao removida ou arquivada.' });
+      refreshDashboard();
+    } catch (error) {
+      setToast({ type: 'error', message: error.message });
+    }
+  }
+
   return (
     <div className="two-column">
       <section className="panel wide">
@@ -2197,6 +2816,16 @@ function PromotionsPage({ data, token, refreshDashboard, setToast, user }) {
                 <span>{promo.startsAt} até {promo.endsAt}</span>
               </div>
               <b>{promo.code}</b>
+              {canEdit && (
+                <div className="card-actions">
+                  <button type="button" className="outline-button" onClick={() => togglePromotion(promo)}>
+                    {promo.active === false ? 'Ativar' : 'Desativar'}
+                  </button>
+                  <button type="button" className="outline-button danger-action" onClick={() => deletePromotion(promo)}>
+                    Remover
+                  </button>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -2239,7 +2868,7 @@ function PromotionsPage({ data, token, refreshDashboard, setToast, user }) {
 function SettingsPage({ data, token, refreshDashboard, setToast }) {
   const [rules, setRules] = useState(data.settings.appointmentRules);
   const demoStatus = data.persistence?.demo;
-  const showDemoReset = import.meta.env.DEV || demoStatus?.isDemo || demoStatus?.generatedForDate;
+  const showDemoReset = false;
 
   async function saveSettings(event) {
     event.preventDefault();
@@ -2360,6 +2989,7 @@ function SettingsPage({ data, token, refreshDashboard, setToast }) {
 
 function SupportPage({ data }) {
   const whatsapp = data.settings.whatsappNumber;
+  const whatsappNotifications = data.notifications.filter((notification) => notification.channel === 'whatsapp');
   return (
     <div className="page-grid">
       <section className="panel wide">
@@ -2371,16 +3001,10 @@ function SupportPage({ data }) {
             <span>Atendimento, confirmações e promoções</span>
             <ChevronRight size={18} />
           </a>
-          <a className="support-card" href="mailto:contato@barberpro.com">
-            <Mail size={26} />
-            <strong>E-mail</strong>
-            <span>Notificações e recuperação de senha</span>
-            <ChevronRight size={18} />
-          </a>
           <div className="support-card">
             <Bell size={26} />
             <strong>Automações</strong>
-            <span>Lembretes, aniversário, estoque baixo e clientes antigos</span>
+            <span>Lembretes por WhatsApp, aniversário, estoque baixo e clientes antigos</span>
             <ChevronRight size={18} />
           </div>
           <div className="support-card">
@@ -2393,9 +3017,9 @@ function SupportPage({ data }) {
       </section>
 
       <section className="panel wide">
-        <SectionHeading eyebrow="Notificações" title="Fila de mensagens" />
+        <SectionHeading eyebrow="WhatsApp" title="Fila de lembretes" />
         <div className="table-list">
-          {data.notifications.map((notification) => (
+          {whatsappNotifications.map((notification) => (
             <div className="table-row" key={notification.id}>
               <Bell size={18} />
               <span>
@@ -2406,6 +3030,7 @@ function SupportPage({ data }) {
               <StatusPill status={notification.status} label={notificationStatusLabel[notification.status] || notification.status} />
             </div>
           ))}
+          {!whatsappNotifications.length && <EmptyState text="Nenhum lembrete de WhatsApp na fila." />}
         </div>
       </section>
     </div>

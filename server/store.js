@@ -2,6 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const {
+  applyRelationalSchema,
+  persistSnapshot: persistMysqlSnapshot
+} = require('./adapters/mysqlSnapshot');
+const { readRelationalData } = require('./adapters/mysqlReadModel');
 
 const dataFile = path.resolve(process.cwd(), process.env.DATA_FILE || path.join('data', 'barberpro.json'));
 const MYSQL_STATE_ID = 'barberpro';
@@ -10,6 +15,7 @@ const DEMO_DATASET_ID = 'barberpro-demo';
 const DEMO_SEED_VERSION = 2;
 const DEMO_RESET_CONFIRMATION = 'RESTAURAR DEMO';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || 'tenant_demo';
 const requestedDriver = String(process.env.DB_DRIVER || 'json').toLowerCase() === 'mysql' ? 'mysql' : 'json';
 let memoryData = null;
 let storageMode = 'json';
@@ -65,6 +71,204 @@ function isoNow(date = new Date()) {
 
 function cloneData(data) {
   return JSON.parse(JSON.stringify(data));
+}
+
+function tenantId() {
+  return DEFAULT_TENANT_ID;
+}
+
+function tenantScopedCollections() {
+  return [
+    'users',
+    'units',
+    'clients',
+    'barbers',
+    'services',
+    'appointments',
+    'payments',
+    'commissions',
+    'reviews',
+    'products',
+    'stockMovements',
+    'expenses',
+    'promotions',
+    'coupons',
+    'waitlist',
+    'notifications',
+    'auditLogs'
+  ];
+}
+
+function normalizeTenantData(data) {
+  if (!data || typeof data !== 'object') return data;
+  const defaultTenantId = data.meta?.defaultTenantId || DEFAULT_TENANT_ID;
+  data.meta = {
+    ...(data.meta || {}),
+    defaultTenantId
+  };
+  for (const collection of tenantScopedCollections()) {
+    if (!Array.isArray(data[collection])) data[collection] = [];
+  }
+  data.tenants = Array.isArray(data.tenants) && data.tenants.length
+    ? data.tenants
+    : [
+        {
+          id: defaultTenantId,
+          name: process.env.DEFAULT_TENANT_NAME || 'BarberPro',
+          slug: process.env.DEFAULT_TENANT_SLUG || 'barberpro',
+          status: 'active',
+          createdAt: data.meta.generatedAt || isoNow()
+        }
+      ];
+
+  for (const collection of tenantScopedCollections()) {
+    if (!Array.isArray(data[collection])) continue;
+    data[collection] = data[collection].map((item) => ({
+      tenantId: item.tenantId || defaultTenantId,
+      ...item,
+      tenantId: item.tenantId || defaultTenantId
+    }));
+  }
+
+  if (data.settings && !data.settings.tenantId) data.settings.tenantId = defaultTenantId;
+  data.loyaltyRules = {
+    pointsPerCurrency: 1,
+    pointsPerReferral: 120,
+    birthdayCouponValue: 25,
+    rewards: [],
+    ...(data.loyaltyRules || {})
+  };
+  return data;
+}
+
+function requireProductionAdminConfig() {
+  const email = String(process.env.FIRST_ADMIN_EMAIL || '').trim().toLowerCase();
+  const password = String(process.env.FIRST_ADMIN_PASSWORD || '');
+  const name = String(process.env.FIRST_ADMIN_NAME || 'Administrador').trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('FIRST_ADMIN_EMAIL valido e obrigatorio para inicializar producao sem usuarios demo.');
+  }
+  if (password.length < 12) {
+    throw new Error('FIRST_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres para producao.');
+  }
+  return { email, password, name };
+}
+
+function createProductionInitialData(options = {}) {
+  const now = options.generatedAt ? isoNow(options.generatedAt) : isoNow();
+  const admin = requireProductionAdminConfig();
+  const defaultTenantId = DEFAULT_TENANT_ID;
+  const passwordHash = bcrypt.hashSync(admin.password, 12);
+
+  return normalizeTenantData({
+    meta: {
+      version: APP_VERSION,
+      dataset: 'barberpro-production',
+      seedVersion: DEMO_SEED_VERSION,
+      generatedAt: now,
+      generatedForDate: dateKeyFromDate(new Date(now)),
+      defaultTenantId
+    },
+    tenants: [
+      {
+        id: defaultTenantId,
+        name: process.env.DEFAULT_TENANT_NAME || 'BarberPro',
+        slug: process.env.DEFAULT_TENANT_SLUG || 'barberpro',
+        status: 'active',
+        createdAt: now
+      }
+    ],
+    users: [
+      {
+        id: 'usr_admin',
+        tenantId: defaultTenantId,
+        role: 'admin',
+        name: admin.name,
+        email: admin.email,
+        phone: process.env.FIRST_ADMIN_PHONE || '',
+        passwordHash,
+        mustChangePassword: true,
+        status: 'active',
+        avatar: '',
+        createdAt: now
+      }
+    ],
+    units: [
+      {
+        id: 'unit_main',
+        tenantId: defaultTenantId,
+        name: process.env.DEFAULT_UNIT_NAME || 'Unidade principal',
+        phone: process.env.DEFAULT_UNIT_PHONE || '',
+        whatsapp: process.env.WHATSAPP_NUMBER || '',
+        email: process.env.DEFAULT_UNIT_EMAIL || admin.email,
+        address: process.env.DEFAULT_UNIT_ADDRESS || '',
+        status: 'active'
+      }
+    ],
+    clients: [],
+    barbers: [],
+    services: [],
+    appointments: [],
+    payments: [],
+    commissions: [],
+    reviews: [],
+    products: [],
+    stockMovements: [],
+    expenses: [],
+    promotions: [],
+    coupons: [],
+    waitlist: [],
+    notifications: [],
+    loyaltyRules: {
+      pointsPerCurrency: 1,
+      pointsPerReferral: 120,
+      birthdayCouponValue: 25,
+      rewards: []
+    },
+    settings: {
+      tenantId: defaultTenantId,
+      barbershopName: process.env.DEFAULT_TENANT_NAME || 'BarberPro',
+      defaultUnitId: 'unit_main',
+      timezone: process.env.APP_TIMEZONE || 'America/Sao_Paulo',
+      currency: 'BRL',
+      whatsappNumber: process.env.WHATSAPP_NUMBER || '',
+      appointmentRules: {
+        slotIntervalMinutes: 30,
+        reminderMinutesBefore: 120,
+        cancellationLimitHours: 3,
+        allowClientReschedule: true
+      },
+      security: {
+        sessionMinutes: 480,
+        minPasswordLength: 8,
+        auditImportantActions: true,
+        lgpdConsentRequired: true
+      },
+      businessHours: {
+        0: { label: 'Domingo', open: '10:00', close: '14:00', closed: true },
+        1: { label: 'Segunda', open: '09:00', close: '18:00', closed: false },
+        2: { label: 'Terca', open: '09:00', close: '18:00', closed: false },
+        3: { label: 'Quarta', open: '09:00', close: '18:00', closed: false },
+        4: { label: 'Quinta', open: '09:00', close: '18:00', closed: false },
+        5: { label: 'Sexta', open: '09:00', close: '18:00', closed: false },
+        6: { label: 'Sabado', open: '08:00', close: '14:00', closed: false }
+      },
+      holidays: []
+    },
+    auditLogs: [
+      {
+        id: 'log_001',
+        tenantId: defaultTenantId,
+        userId: 'system',
+        action: 'system_production_seeded',
+        entity: 'system',
+        entityId: 'barberpro',
+        details: 'Base inicial de producao criada sem usuarios demo.',
+        createdAt: now,
+        ip: 'local'
+      }
+    ]
+  });
 }
 
 function getMysqlConfig() {
@@ -166,6 +370,10 @@ function runSerialized(operation) {
 }
 
 function createInitialData(options = {}) {
+  if (IS_PRODUCTION && options.production !== false) {
+    return createProductionInitialData(options);
+  }
+
   const now = options.generatedAt ? isoNow(options.generatedAt) : isoNow();
   const seedBaseDate = options.baseDate ? new Date(options.baseDate) : new Date(now);
   const seedYear = seedBaseDate.getUTCFullYear();
@@ -523,8 +731,6 @@ function createInitialData(options = {}) {
         startTime: '10:00',
         endTime: '11:15',
         status: 'confirmed',
-        paymentStatus: 'pending',
-        paymentMethod: 'pix',
         notes: 'Cliente pediu lembrete no WhatsApp.',
         internalNotes: 'Oferecer pomada matte.',
         isFitIn: false,
@@ -542,8 +748,6 @@ function createInitialData(options = {}) {
         startTime: '14:00',
         endTime: '14:50',
         status: 'scheduled',
-        paymentStatus: 'pending',
-        paymentMethod: 'card',
         notes: '',
         internalNotes: 'Verificar alergia antes do produto.',
         isFitIn: false,
@@ -561,8 +765,6 @@ function createInitialData(options = {}) {
         startTime: '16:00',
         endTime: '18:00',
         status: 'scheduled',
-        paymentStatus: 'pending',
-        paymentMethod: 'cash',
         notes: 'Veio por indicacao do Lucas.',
         internalNotes: '',
         isFitIn: false,
@@ -580,8 +782,6 @@ function createInitialData(options = {}) {
         startTime: '09:00',
         endTime: '09:45',
         status: 'finished',
-        paymentStatus: 'paid',
-        paymentMethod: 'pix',
         notes: '',
         internalNotes: '',
         isFitIn: false,
@@ -599,8 +799,6 @@ function createInitialData(options = {}) {
         startTime: '18:00',
         endTime: '18:35',
         status: 'no_show',
-        paymentStatus: 'cancelled',
-        paymentMethod: 'cash',
         notes: '',
         internalNotes: 'Registrar falta.',
         isFitIn: false,
@@ -608,20 +806,7 @@ function createInitialData(options = {}) {
         updatedAt: now
       }
     ],
-    payments: [
-      {
-        id: 'pay_001',
-        appointmentId: 'apt_004',
-        clientId: 'client_lucas',
-        barberId: 'barber_marcos',
-        amount: 60,
-        method: 'pix',
-        status: 'paid',
-        paidAt: addSeedDays(-4),
-        gatewayReference: 'PIX-DEMO-001',
-        createdAt: now
-      }
-    ],
+    payments: [],
     commissions: [
       {
         id: 'com_001',
@@ -822,8 +1007,7 @@ function createInitialData(options = {}) {
         slotIntervalMinutes: 30,
         reminderMinutesBefore: 120,
         cancellationLimitHours: 3,
-        allowClientReschedule: true,
-        requirePaymentConfirmation: false
+        allowClientReschedule: true
       },
       security: {
         sessionMinutes: 480,
@@ -1033,9 +1217,10 @@ function localSeedData(options = {}) {
   const persist = options.persist !== false;
 
   if (fs.existsSync(dataFile)) {
-    const loadedData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+    const loadedData = normalizeTenantData(JSON.parse(fs.readFileSync(dataFile, 'utf8')));
     const renewal = maybeRenewDemoSnapshot(loadedData);
     if (renewal.renewed) {
+      renewal.data = normalizeTenantData(renewal.data);
       let backupFile = null;
       if (persist) {
         backupFile = backupJsonFile('stale-demo');
@@ -1049,14 +1234,14 @@ function localSeedData(options = {}) {
         renewedFrom: renewal.data.meta.renewedFrom,
         backupFile
       });
-      return renewal.data;
+      return normalizeTenantData(renewal.data);
     }
 
     updateDemoStoreState(loadedData);
     return loadedData;
   }
 
-  const createdData = createInitialData();
+  const createdData = normalizeTenantData(createInitialData());
   if (options.writeIfMissing) writeJsonFile(createdData);
   updateDemoStoreState(createdData);
   return createdData;
@@ -1073,7 +1258,7 @@ async function resetDemoData(options = {}) {
   return runSerialized(async () => {
     ensureStore();
     const resetAt = isoNow();
-    const data = createInitialData({ generatedAt: resetAt });
+    const data = normalizeTenantData(createInitialData({ generatedAt: resetAt, production: false }));
     data.meta.resetAt = resetAt;
     data.auditLogs.unshift({
       id: id('log'),
@@ -1129,30 +1314,20 @@ async function initializeMysqlStore() {
     namedPlaceholders: true
   });
 
-  await mysqlPool.query(`
-    CREATE TABLE IF NOT EXISTS app_state (
-      id VARCHAR(60) NOT NULL PRIMARY KEY,
-      data LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+  await applyRelationalSchema(mysqlPool);
 
   const [rows] = await mysqlPool.execute('SELECT data FROM app_state WHERE id = ?', [MYSQL_STATE_ID]);
   if (rows.length > 0) {
-    const loadedData = JSON.parse(rows[0].data);
+    const loadedData = normalizeTenantData(JSON.parse(rows[0].data));
     const renewal = maybeRenewDemoSnapshot(loadedData);
-    memoryData = renewal.data;
+    memoryData = normalizeTenantData(renewal.data);
     if (renewal.renewed) {
-      await mysqlPool.execute('UPDATE app_state SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
-        JSON.stringify(memoryData),
-        MYSQL_STATE_ID
-      ]);
-      setStoreState({ lastPersistedAt: isoNow() });
       console.info(
         `Snapshot demo MySQL renovado de ${renewal.previousStatus.generatedForDate} para ${renewal.status.generatedForDate}.`
       );
     }
+    await persistMysqlSnapshot(mysqlPool, memoryData, MYSQL_STATE_ID);
+    setStoreState({ lastPersistedAt: isoNow() });
     updateDemoStoreState(memoryData, renewal.renewed
       ? {
           autoRenewedAt: memoryData.meta.renewedAt,
@@ -1160,11 +1335,9 @@ async function initializeMysqlStore() {
         }
       : {});
   } else {
-    memoryData = localSeedData();
-    await mysqlPool.execute('INSERT INTO app_state (id, data) VALUES (?, ?)', [
-      MYSQL_STATE_ID,
-      JSON.stringify(memoryData)
-    ]);
+    memoryData = normalizeTenantData(localSeedData());
+    await persistMysqlSnapshot(mysqlPool, memoryData, MYSQL_STATE_ID);
+    setStoreState({ lastPersistedAt: isoNow() });
   }
 
   storageMode = 'mysql';
@@ -1188,7 +1361,7 @@ async function initializeStore() {
       );
       storageMode = 'mysql';
       mysqlPool = null;
-      memoryData = localSeedData();
+      memoryData = normalizeTenantData(localSeedData());
       return markMysqlUnavailable(error, 'json-readonly');
     }
   }
@@ -1236,10 +1409,7 @@ async function persistMysql(data) {
   }
 
   try {
-    await mysqlPool.execute(
-      'INSERT INTO app_state (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = CURRENT_TIMESTAMP',
-      [MYSQL_STATE_ID, JSON.stringify(data)]
-    );
+    await persistMysqlSnapshot(mysqlPool, data, MYSQL_STATE_ID);
     setStoreState({
       status: 'healthy',
       writable: true,
@@ -1252,6 +1422,44 @@ async function persistMysql(data) {
   } catch (error) {
     markMysqlUnavailable(error, storeState.fallbackMode);
     throw persistenceUnavailableError(error);
+  }
+}
+
+async function persistMysqlOperationalMutation(data, writerContext, writer) {
+  if (!mysqlPool || storeState.status !== 'healthy') {
+    await refreshStoreHealth();
+  }
+  if (!mysqlPool || storeState.status !== 'healthy') {
+    throw persistenceUnavailableError();
+  }
+
+  const connection = await mysqlPool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await writer(connection, writerContext);
+    await connection.execute(
+      `INSERT INTO app_state (id, data)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = CURRENT_TIMESTAMP`,
+      [MYSQL_STATE_ID, JSON.stringify(data)]
+    );
+    await connection.commit();
+    setStoreState({
+      status: 'healthy',
+      writable: true,
+      readOnly: false,
+      fallbackMode: null,
+      message: 'MySQL ativo. Escritas criticas usam transacoes SQL e app_state sincronizado.',
+      lastError: null,
+      lastErrorAt: null,
+      lastPersistedAt: isoNow()
+    });
+  } catch (error) {
+    await connection.rollback();
+    markMysqlUnavailable(error, storeState.fallbackMode);
+    throw persistenceUnavailableError(error);
+  } finally {
+    connection.release();
   }
 }
 
@@ -1289,9 +1497,33 @@ function readData() {
   return memoryData;
 }
 
+async function readOperationalData() {
+  ensureStore();
+  if (storageMode !== 'mysql' || !mysqlPool || storeState.status !== 'healthy') {
+    return readData();
+  }
+
+  try {
+    const relationalData = await readRelationalData(mysqlPool, memoryData);
+    memoryData = normalizeTenantData(relationalData);
+    updateDemoStoreState(memoryData);
+    setStoreState({
+      lastError: null,
+      lastErrorAt: null
+    });
+    return memoryData;
+  } catch (error) {
+    setStoreState({
+      lastError: `Falha ao ler modelo relacional MySQL: ${error.message}`,
+      lastErrorAt: isoNow()
+    });
+    return readData();
+  }
+}
+
 async function writeData(data) {
   return runSerialized(async () => {
-    const nextData = cloneData(data);
+    const nextData = normalizeTenantData(cloneData(data));
     await persistSnapshot(nextData);
     memoryData = nextData;
     updateDemoStoreState(memoryData);
@@ -1304,7 +1536,7 @@ async function mutateData(mutator) {
     ensureStore();
     const current = memoryData || createInitialData();
     const before = JSON.stringify(current);
-    const draft = cloneData(current);
+    const draft = normalizeTenantData(cloneData(current));
     const result = await mutator(draft);
     const after = JSON.stringify(draft);
 
@@ -1318,13 +1550,47 @@ async function mutateData(mutator) {
   });
 }
 
+async function mutateDataWithMysqlOperation(mutator, writer) {
+  return runSerialized(async () => {
+    ensureStore();
+    const current = memoryData || createInitialData();
+    const before = JSON.stringify(current);
+    const draft = normalizeTenantData(cloneData(current));
+    const result = await mutator(draft);
+    const after = JSON.stringify(draft);
+
+    if (after !== before) {
+      if (storageMode === 'mysql' && typeof writer === 'function') {
+        await persistMysqlOperationalMutation(draft, { before: current, after: draft, result }, writer);
+      } else {
+        await persistSnapshot(draft);
+      }
+      memoryData = draft;
+      updateDemoStoreState(memoryData);
+    }
+
+    return result;
+  });
+}
+
 function sanitizeUser(user) {
   if (!user) return null;
-  const { passwordHash, ...safeUser } = user;
+  const {
+    passwordHash,
+    passwordResetToken,
+    passwordResetTokenHash,
+    passwordResetExpiresAt,
+    passwordResetExpires,
+    resetToken,
+    resetTokenExpiresAt,
+    sessionToken,
+    ...safeUser
+  } = user;
   return safeUser;
 }
 
 module.exports = {
+  DEFAULT_TENANT_ID,
   dataFile,
   DEMO_RESET_CONFIRMATION,
   getStoreInfo,
@@ -1333,9 +1599,12 @@ module.exports = {
   isoNow,
   PersistenceUnavailableError,
   readData,
+  readOperationalData,
   refreshStoreHealth,
   resetDemoData,
   writeData,
   mutateData,
-  sanitizeUser
+  mutateDataWithMysqlOperation,
+  sanitizeUser,
+  normalizeTenantData
 };

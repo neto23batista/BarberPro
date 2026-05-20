@@ -1218,6 +1218,29 @@ progress::-webkit-progress-value {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
+.card-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-actions .outline-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.82rem;
+}
+
+.permission-row {
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.3fr) auto;
+}
+
+.permission-row small {
+  color: var(--muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .support-card {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }

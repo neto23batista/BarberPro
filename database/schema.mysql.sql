@@ -7,14 +7,34 @@ CREATE DATABASE IF NOT EXISTS barberpro
 
 USE barberpro;
 
+CREATE TABLE IF NOT EXISTS app_state (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  data LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   migration VARCHAR(180) NOT NULL UNIQUE,
   executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS tenants (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  name VARCHAR(140) NOT NULL,
+  slug VARCHAR(120) NOT NULL UNIQUE,
+  status ENUM('active', 'inactive', 'blocked') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO tenants (id, name, slug)
+VALUES ('tenant_demo', 'BarberPro', 'barberpro');
+
 CREATE TABLE IF NOT EXISTS units (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   name VARCHAR(140) NOT NULL,
   phone VARCHAR(32),
   whatsapp VARCHAR(32),
@@ -27,12 +47,17 @@ CREATE TABLE IF NOT EXISTS units (
 
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   unit_id VARCHAR(60),
   role ENUM('admin', 'owner', 'barber', 'attendant', 'client') NOT NULL,
   name VARCHAR(140) NOT NULL,
   email VARCHAR(180) NOT NULL UNIQUE,
   phone VARCHAR(32),
   password_hash TEXT NOT NULL,
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+  password_reset_token_hash VARCHAR(128),
+  password_reset_expires_at DATETIME,
+  password_changed_at DATETIME,
   status ENUM('active', 'inactive', 'blocked') NOT NULL DEFAULT 'active',
   avatar_url TEXT,
   birth_date DATE,
@@ -44,6 +69,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS barbers (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   user_id VARCHAR(60) UNIQUE,
   name VARCHAR(140) NOT NULL,
   phone VARCHAR(32),
@@ -53,6 +79,7 @@ CREATE TABLE IF NOT EXISTS barbers (
   rating DECIMAL(3,2) NOT NULL DEFAULT 5.00,
   goal_monthly DECIMAL(12,2) NOT NULL DEFAULT 0,
   status ENUM('active', 'inactive', 'blocked') NOT NULL DEFAULT 'active',
+  archived_at DATETIME,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_barbers_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
@@ -75,6 +102,7 @@ CREATE TABLE IF NOT EXISTS barber_units (
 
 CREATE TABLE IF NOT EXISTS clients (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   user_id VARCHAR(60) UNIQUE,
   preferred_barber_id VARCHAR(60),
   name VARCHAR(140) NOT NULL,
@@ -85,6 +113,8 @@ CREATE TABLE IF NOT EXISTS clients (
   visits INT NOT NULL DEFAULT 0,
   no_shows INT NOT NULL DEFAULT 0,
   notes TEXT,
+  status ENUM('active', 'inactive', 'blocked') NOT NULL DEFAULT 'active',
+  archived_at DATETIME,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_clients_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -100,6 +130,7 @@ CREATE TABLE IF NOT EXISTS client_tags (
 
 CREATE TABLE IF NOT EXISTS services (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   name VARCHAR(120) NOT NULL,
   description TEXT,
   price DECIMAL(12,2) NOT NULL,
@@ -107,6 +138,7 @@ CREATE TABLE IF NOT EXISTS services (
   icon VARCHAR(80),
   color VARCHAR(20),
   active BOOLEAN NOT NULL DEFAULT TRUE,
+  archived_at DATETIME,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CHECK (price >= 0),
@@ -137,6 +169,7 @@ CREATE TABLE IF NOT EXISTS barber_time_blocks (
 
 CREATE TABLE IF NOT EXISTS appointments (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   code VARCHAR(32) NOT NULL UNIQUE,
   unit_id VARCHAR(60) NOT NULL,
   client_id VARCHAR(60) NOT NULL,
@@ -164,9 +197,11 @@ CREATE TABLE IF NOT EXISTS appointments (
 CREATE INDEX idx_appointments_barber_date ON appointments(barber_id, appointment_date);
 CREATE INDEX idx_appointments_client_date ON appointments(client_id, appointment_date);
 CREATE INDEX idx_appointments_status ON appointments(status);
+CREATE INDEX idx_appointments_tenant_barber_date ON appointments(tenant_id, barber_id, appointment_date, start_time);
 
 CREATE TABLE IF NOT EXISTS payments (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   appointment_id VARCHAR(60) NOT NULL UNIQUE,
   client_id VARCHAR(60) NOT NULL,
   barber_id VARCHAR(60) NOT NULL,
@@ -185,6 +220,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
 CREATE TABLE IF NOT EXISTS commissions (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   appointment_id VARCHAR(60) NOT NULL UNIQUE,
   barber_id VARCHAR(60) NOT NULL,
   amount DECIMAL(12,2) NOT NULL,
@@ -200,6 +236,7 @@ CREATE TABLE IF NOT EXISTS commissions (
 
 CREATE TABLE IF NOT EXISTS reviews (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   appointment_id VARCHAR(60) NOT NULL UNIQUE,
   client_id VARCHAR(60) NOT NULL,
   barber_id VARCHAR(60) NOT NULL,
@@ -214,6 +251,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 CREATE TABLE IF NOT EXISTS products (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   unit_id VARCHAR(60),
   name VARCHAR(140) NOT NULL,
   category VARCHAR(100) NOT NULL,
@@ -223,6 +261,7 @@ CREATE TABLE IF NOT EXISTS products (
   sale_price DECIMAL(12,2) NOT NULL DEFAULT 0,
   min_stock INT NOT NULL DEFAULT 1,
   active BOOLEAN NOT NULL DEFAULT TRUE,
+  archived_at DATETIME,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_products_unit FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL,
@@ -234,6 +273,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 CREATE TABLE IF NOT EXISTS stock_movements (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   product_id VARCHAR(60) NOT NULL,
   user_id VARCHAR(60),
   type ENUM('purchase', 'sale', 'usage', 'loss', 'adjustment') NOT NULL,
@@ -243,12 +283,173 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_stock_movements_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
   CONSTRAINT fk_stock_movements_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-  CHECK (quantity > 0),
+  CHECK (quantity >= 0),
   CHECK (unit_value >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS expenses (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
+  category VARCHAR(100) NOT NULL,
+  description VARCHAR(220) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  due_date DATE,
+  status ENUM('pending', 'paid', 'overdue', 'cancelled') NOT NULL DEFAULT 'pending',
+  paid_at DATETIME,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CHECK (amount >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_expenses_tenant_due_status ON expenses(tenant_id, due_date, status);
+
+CREATE TABLE IF NOT EXISTS promotions (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
+  title VARCHAR(140) NOT NULL,
+  description TEXT,
+  code VARCHAR(50) NOT NULL,
+  discount_type ENUM('percent', 'fixed') NOT NULL,
+  discount_value DECIMAL(12,2) NOT NULL,
+  starts_at DATE,
+  ends_at DATE,
+  audience VARCHAR(80) NOT NULL DEFAULT 'all',
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  archived_at DATETIME,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_promotions_tenant_code (tenant_id, code),
+  CHECK (discount_value > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_promotions_tenant_active_dates ON promotions(tenant_id, active, starts_at, ends_at);
+
+CREATE TABLE IF NOT EXISTS coupons (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
+  promotion_id VARCHAR(60),
+  client_id VARCHAR(60),
+  code VARCHAR(50) NOT NULL,
+  discount_type ENUM('percent', 'fixed') NOT NULL DEFAULT 'fixed',
+  discount_value DECIMAL(12,2) NOT NULL DEFAULT 0,
+  expires_at DATE,
+  used_at DATETIME,
+  status ENUM('active', 'used', 'expired', 'cancelled') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_coupons_tenant_code (tenant_id, code),
+  CONSTRAINT fk_coupons_promotion FOREIGN KEY (promotion_id) REFERENCES promotions(id) ON DELETE SET NULL,
+  CONSTRAINT fk_coupons_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
+  CHECK (discount_value >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_coupons_tenant_client_status ON coupons(tenant_id, client_id, status);
+
+CREATE TABLE IF NOT EXISTS waitlist (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
+  client_id VARCHAR(60),
+  service_id VARCHAR(60),
+  barber_id VARCHAR(60),
+  preferred_date DATE,
+  period VARCHAR(80),
+  status ENUM('waiting', 'notified', 'converted', 'expired', 'cancelled') NOT NULL DEFAULT 'waiting',
+  expired_at DATETIME,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_waitlist_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
+  CONSTRAINT fk_waitlist_service FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE SET NULL,
+  CONSTRAINT fk_waitlist_barber FOREIGN KEY (barber_id) REFERENCES barbers(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_waitlist_tenant_status_date ON waitlist(tenant_id, status, preferred_date);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
+  user_id VARCHAR(60),
+  channel ENUM('system', 'email', 'whatsapp', 'sms') NOT NULL DEFAULT 'system',
+  title VARCHAR(160) NOT NULL,
+  message TEXT NOT NULL,
+  status ENUM('queued', 'scheduled', 'sent', 'failed', 'expired', 'cancelled') NOT NULL DEFAULT 'queued',
+  scheduled_for DATETIME,
+  sent_at DATETIME,
+  expired_at DATETIME,
+  metadata_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_notifications_tenant_status_schedule ON notifications(tenant_id, status, scheduled_for);
+
+CREATE TABLE IF NOT EXISTS tenant_settings (
+  tenant_id VARCHAR(60) NOT NULL PRIMARY KEY,
+  settings_json JSON NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_tenant_settings_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS loyalty_rules (
+  tenant_id VARCHAR(60) NOT NULL PRIMARY KEY,
+  points_per_currency DECIMAL(10,2) NOT NULL DEFAULT 1,
+  points_per_referral INT NOT NULL DEFAULT 120,
+  birthday_coupon_value DECIMAL(12,2) NOT NULL DEFAULT 25,
+  rules_json JSON,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_loyalty_rules_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  CHECK (points_per_currency >= 0),
+  CHECK (points_per_referral >= 0),
+  CHECK (birthday_coupon_value >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS loyalty_rewards (
+  id VARCHAR(60) NOT NULL,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
+  name VARCHAR(140) NOT NULL,
+  points INT NOT NULL,
+  discount_value DECIMAL(12,2),
+  service_id VARCHAR(60),
+  metadata_json JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id, tenant_id),
+  CONSTRAINT fk_loyalty_rewards_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  CONSTRAINT fk_loyalty_rewards_service FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE SET NULL,
+  CHECK (points >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS operational_reconciliation (
+  tenant_id VARCHAR(60) NOT NULL PRIMARY KEY,
+  rule_version VARCHAR(80),
+  last_run_at DATETIME,
+  last_run_by VARCHAR(60),
+  last_checked_at DATETIME,
+  last_checked_by VARCHAR(60),
+  state_json JSON,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_operational_reconciliation_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS operational_reconciliation_events (
+  id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
+  rule_key VARCHAR(100) NOT NULL,
+  entity VARCHAR(80),
+  entity_id VARCHAR(80),
+  previous_status VARCHAR(80),
+  next_status VARCHAR(80),
+  label VARCHAR(160),
+  message TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_reconciliation_events_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_reconciliation_events_tenant_created ON operational_reconciliation_events(tenant_id, created_at);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id VARCHAR(60) NOT NULL PRIMARY KEY,
+  tenant_id VARCHAR(60) NOT NULL DEFAULT 'tenant_demo',
   user_id VARCHAR(60),
   action VARCHAR(100) NOT NULL,
   entity VARCHAR(80) NOT NULL,
